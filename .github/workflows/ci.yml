@@ -14,7 +14,7 @@ concurrency:
 jobs:
   check:
     name: Lint, typecheck, unit tests
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x64
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -35,7 +35,7 @@ jobs:
   # The built print agent must start on its own, as on the booth computer (Node 24, SPEC §11.1).
   print-agent-bundle:
     name: Print agent bundle
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x64
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -64,7 +64,7 @@ jobs:
 
   e2e:
     name: Playwright
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x64
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
@@ -87,7 +87,7 @@ jobs:
 
   docker:
     name: Docker image builds
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-x64
     # id-token: the Azure OIDC login on main (repo variables AZURE_*; docs/deployment.md §6).
     permissions:
       contents: read
