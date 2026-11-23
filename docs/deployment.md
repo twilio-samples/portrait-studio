@@ -181,7 +181,7 @@ without pushing. Run these from the repo root, signed in with `az login` and `gh
 **1. An Entra app that GitHub logs in as** (OIDC, no stored password):
 
 ```sh
-REPO=IObert/portrait-studio
+REPO=twilio-samples/portrait-studio
 RG=rg-portrait-studio
 SUB=$(az account show --query id -o tsv)
 SCOPE=/subscriptions/$SUB/resourceGroups/$RG
