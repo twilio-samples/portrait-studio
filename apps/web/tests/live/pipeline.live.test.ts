@@ -1,0 +1,104 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import OpenAI from "openai";
+import sharp from "sharp";
+import { describe, expect, it } from "vitest";
+import { defaultConfig, type PortraitEvent } from "@/lib/events/schema";
+import { type Job, JobSchema } from "@/lib/jobs/schema";
+import { runPipeline } from "@/lib/pipeline/run";
+import { FakeBlob } from "../support/fake-blob";
+import { liveEnv } from "./env";
+import { getEnv } from "@/lib/env";
+
+/**
+ * Full pipeline against the real OpenAI API with the uploaded background
+ * (SPEC §8.2, §16). Opt-in: RUN_LIVE_AI_TESTS=1. Costs ~$0.20. Uses a local
+ * spike selfie from .local/ (git-ignored; never committed).
+ */
+const live = process.env.RUN_LIVE_AI_TESTS === "1";
+const SELFIE = path.join(import.meta.dirname, "../../../../.local/spike-inputs/1-person.jpg");
+const OUT = path.join(import.meta.dirname, "../../../../.local/pipeline-live");
+
+describe.skipIf(!live)("pipeline (live AI)", () => {
+  it("moderates, analyses, generates transparent, composites, frames and reviews", async () => {
+    const env = liveEnv(["OPENAI_API_KEY"]);
+    const blob = new FakeBlob();
+    const selfie = await sharp(readFileSync(SELFIE)).rotate().jpeg({ quality: 90 }).toBuffer();
+    await blob.put("events/ev/selfies/s.jpg", selfie, "image/jpeg");
+    // A busy uploaded background makes compositing errors obvious.
+    const bg = await sharp(Buffer.from(`<svg width="1024" height="1536" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g" x2="1" y2="1"><stop offset="0" stop-color="#f6bd60"/><stop offset="1" stop-color="#2a6f97"/></linearGradient></defs><rect width="1024" height="1536" fill="url(#g)"/></svg>`)).jpeg().toBuffer();
+    await blob.put("assets/events/ev/background.jpg", bg, "image/jpeg");
+
+    const event: PortraitEvent = {
+      slug: "ev",
+      state: "live",
+      config: { ...defaultConfig("Live pipeline", "+13203780782"), backgrounds: ["uploaded"], uploadedBackgroundName: "Stage", frame: "twilio-tab-bottom" },
+      uploads: { frame: null, background: { blobPath: "assets/events/ev/background.jpg", contentType: "image/jpeg", width: 1024, height: 1536, uploadedAt: new Date().toISOString() } },
+      printerTokenHash: null, printerToken: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const job: Job = JobSchema.parse({ jobId: "live_job_1", address: "whatsapp:+10000000000", channel: "whatsapp", style: "cartoon", background: "uploaded", selfieBlob: "events/ev/selfies/s.jpg", shareId: "s".repeat(24), state: "processing", timestamps: {} });
+
+    const t0 = performance.now();
+    const outcome = await runPipeline(
+      {
+        openai: new OpenAI({ apiKey: env.OPENAI_API_KEY, maxRetries: 0 }),
+        blob,
+        imageModel: getEnv().OPENAI_IMAGE_MODEL,
+        vision: { model: getEnv().OPENAI_VISION_MODEL, effort: "low" },
+        loadFixedFrame: async (id) => readFileSync(path.join(import.meta.dirname, `../../assets/frames/${id}.png`)),
+        loadBrandAsset: async (key: string, file: string) => readFileSync(path.join(import.meta.dirname, "../../assets", key, file)),
+      },
+      event,
+      job,
+    );
+    const seconds = (performance.now() - t0) / 1000;
+    console.log(`pipeline: ${outcome.kind} in ${seconds.toFixed(1)}s`, outcome.kind === "flagged" ? outcome.reason : "");
+    expect(["ready", "flagged"]).toContain(outcome.kind);
+    if (outcome.kind === "rejected") return;
+
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(OUT, { recursive: true });
+    writeFileSync(path.join(OUT, "print.png"), (await blob.get(outcome.outputBlobs.printPng))!);
+    writeFileSync(path.join(OUT, "delivery.jpg"), (await blob.get(outcome.outputBlobs.deliveryJpeg))!);
+    const meta = await sharp((await blob.get(outcome.outputBlobs.printPng))!).metadata();
+    expect([meta.width, meta.height, meta.density]).toEqual([1200, 1800, 300]);
+  }, 300_000);
+
+  it("LA Kings promotion: jersey and the arena scene, framed and reviewed (D-36)", async () => {
+    const env = liveEnv(["OPENAI_API_KEY"]);
+    const blob = new FakeBlob();
+    const selfie = await sharp(readFileSync(SELFIE)).rotate().jpeg({ quality: 90 }).toBuffer();
+    await blob.put("events/ev/selfies/k.jpg", selfie, "image/jpeg");
+    const event: PortraitEvent = {
+      slug: "ev",
+      state: "live",
+      config: { ...defaultConfig("Kings Night", "+13203780782"), laKings: true, backgrounds: ["crypto-arena", "ice-rink"], frame: "twilio-tab-bottom-left" },
+      uploads: { frame: null, background: null },
+      printerTokenHash: null, printerToken: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    const job: Job = JobSchema.parse({ jobId: "live_kings_1", address: "whatsapp:+10000000000", channel: "whatsapp", style: "cartoon", background: "crypto-arena", selfieBlob: "events/ev/selfies/k.jpg", shareId: "k".repeat(24), state: "processing", subjects: 1, pet: null, timestamps: {} });
+    const t0 = performance.now();
+    const outcome = await runPipeline(
+      {
+        openai: new OpenAI({ apiKey: env.OPENAI_API_KEY, maxRetries: 0 }),
+        blob,
+        imageModel: getEnv().OPENAI_IMAGE_MODEL,
+        vision: { model: getEnv().OPENAI_VISION_MODEL, effort: "low" },
+        loadFixedFrame: async (id) => readFileSync(path.join(import.meta.dirname, `../../assets/frames/${id}.png`)),
+        loadBrandAsset: async (key: string, file: string) => readFileSync(path.join(import.meta.dirname, "../../assets", key, file)),
+      },
+      event,
+      job,
+    );
+    console.log(`kings pipeline: ${outcome.kind} in ${((performance.now() - t0) / 1000).toFixed(1)}s`, outcome.kind === "flagged" ? outcome.reason : "");
+    expect(["ready", "flagged"]).toContain(outcome.kind);
+    if (outcome.kind === "rejected") return;
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    mkdirSync(OUT, { recursive: true });
+    writeFileSync(path.join(OUT, "kings-print.png"), (await blob.get(outcome.outputBlobs.printPng))!);
+  }, 300_000);
+});

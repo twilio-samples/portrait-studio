@@ -1,0 +1,77 @@
+import type { Metadata } from "next";
+import { connection } from "next/server";
+import { Suspense } from "react";
+import { catalogs } from "@/i18n";
+import { withEventName } from "@/lib/events/schema";
+import { loadShare } from "@/lib/share/load";
+import { PrintButton } from "./print-button";
+import { ShareButtons } from "./share-buttons";
+import { ShareTracker } from "./share-tracker";
+
+/** OpenGraph preview for a pasted link (SPEC §6.2). */
+export async function generateMetadata(props: PageProps<"/s/[shareId]">): Promise<Metadata> {
+  // Expiry depends on the current time: render at request time.
+  await connection();
+  const view = await loadShare((await props.params).shareId);
+  const base: Metadata = { robots: { index: false, follow: false } };
+  if ("gone" in view) return { ...base, title: catalogs[view.locale].share[view.gone === "removed" ? "removed" : "gone"] };
+  const title = catalogs[view.event.config.language].share.title({ eventName: view.event.config.name });
+  return {
+    ...base,
+    title,
+    openGraph: { title, type: "website", images: [{ url: view.imageUrl, width: 1200, height: 1800 }] },
+    twitter: { card: "summary_large_image", title, images: [view.imageUrl] },
+  };
+}
+
+async function Share({ params }: { params: Promise<{ shareId: string }> }) {
+  await connection();
+  const { shareId } = await params;
+  const view = await loadShare(shareId);
+  if ("gone" in view) {
+    const c = catalogs[view.locale];
+    return (
+      <p className="max-w-[32ch] text-center font-display text-2xl leading-snug text-white/80 text-balance" data-testid="share-gone">
+        {view.gone === "removed" ? c.share.removed : c.share.gone}
+      </p>
+    );
+  }
+  const c = catalogs[view.event.config.language];
+  return (
+    <div lang={view.event.config.language === "pt_BR" ? "pt-BR" : "en"} className="flex w-full max-w-sm flex-col items-center gap-7">
+      <h1 className="text-center font-display text-2xl leading-tight font-semibold tracking-tight text-balance text-white">{c.share.title({ eventName: view.event.config.name })}</h1>
+      {/* eslint-disable-next-line @next/next/no-img-element -- signed, expiring URL; not optimizable */}
+      <img src={view.imageUrl} alt={c.share.title({ eventName: view.event.config.name })} width={1200} height={1800} className="w-full -rotate-1 rounded-xl shadow-[0_24px_60px_-12px_rgb(0_0_0/0.6)] ring-8 ring-white" />
+      <ShareTracker shareId={shareId} />
+      <ShareButtons
+        shareId={shareId}
+        imageUrl={view.imageUrl}
+        shareText={withEventName(view.event.config.shareText, view.event.config.name)}
+        // Only plain strings cross to the client (the catalog also holds functions).
+        labels={{ share: c.share.share, copyText: c.share.copyText, copied: c.share.copied, download: c.share.download }}
+      />
+      {view.print && (view.print.left > 0 || view.print.pending) && (
+        <PrintButton
+          shareId={shareId}
+          left={view.print.left}
+          pending={view.print.pending}
+          labels={{
+            print: (view.print.printedBefore ? c.share.printAgain : c.share.print)({ printsLeft: view.print.left }),
+            printing: c.share.printing,
+            printPending: c.share.printPending,
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+export default function SharePage(props: PageProps<"/s/[shareId]">) {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-ink px-6 py-12">
+      <Suspense fallback={null}>
+        <Share params={props.params} />
+      </Suspense>
+    </main>
+  );
+}
